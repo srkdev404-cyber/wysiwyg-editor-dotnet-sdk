@@ -1,0 +1,49 @@
+name: Sync Version (DotNet SDK)
+
+on:
+  repository_dispatch:
+    types: [version_update]
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    environment: PAT
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}
+
+      - name: Update versions in all required files
+        run: |
+          VERSION="${{ github.event.client_payload.version }}"
+
+          # demo-core/bower.json
+          jq ".version = \"$VERSION\"" demo-core/bower.json > /tmp/bower.json
+          mv /tmp/bower.json demo-core/bower.json
+
+          # FroalaEditorSDK.nuspec
+          sed -i "s/<version>.*<\/version>/<version>$VERSION<\/version>/" src/FroalaEditorSDK.nuspec
+
+          # src.csproj - update version
+          sed -i "s/<Version>.*<\/Version>/<Version>$VERSION<\/Version>/" src/src.csproj
+
+          # remove PackageTargetFallback
+          sed -i "/PackageTargetFallback/d" src/src.csproj
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "srkdev404-cyber"
+          git config user.email "srkdev404@gmail.com"
+
+          if git diff --quiet; then
+            echo "No changes detected. Exiting."
+            exit 0
+          fi
+
+          git add demo-core/bower.json src/FroalaEditorSDK.nuspec src/src.csproj
+          git commit -m "chore: bump .NET SDK version to ${{ github.event.client_payload.version }}"
+          git push
