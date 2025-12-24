@@ -1,4 +1,4 @@
-name: Build, Release & Publish (.NET SDK)
+name: Build, Release & Publish (.NET SDK Child-G)
 
 on:
   push:
@@ -14,9 +14,11 @@ jobs:
     environment: PAT
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
