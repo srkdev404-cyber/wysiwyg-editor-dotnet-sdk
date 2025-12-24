@@ -14,28 +14,38 @@ jobs:
     environment: PAT
 
     steps:
+      # Checkout private repo
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
           fetch-depth: 0
 
+      # Setup .NET
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
+      # Read version from nuspec
       - name: Read version from nuspec
         run: |
           VERSION=$(grep -oPm1 "(?<=<version>)[^<]+" src/FroalaEditorSDK.nuspec)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
+      # Build project
       - name: Build project
         run: dotnet build src/src.csproj --configuration Release
 
+      # Pack NuGet package (CORRECT way)
       - name: Pack NuGet package
-        run: nuget pack src/FroalaEditorSDK.nuspec -OutputDirectory ./nupkg
+        run: |
+          dotnet pack src/src.csproj \
+            --configuration Release \
+            --output ./nupkg \
+            /p:PackageVersion=${{ env.VERSION }}
 
+      # Check if NuGet version already exists
       - name: Check if NuGet version already exists
         run: |
           if dotnet nuget search FroalaEditorSDK \
@@ -47,6 +57,7 @@ jobs:
             echo "SKIP_PUBLISH=false" >> $GITHUB_ENV
           fi
 
+      # Create GitHub Release
       - name: Create GitHub Release
         if: env.SKIP_PUBLISH == 'false'
         uses: softprops/action-gh-release@v2
@@ -57,6 +68,7 @@ jobs:
           files: |
             nupkg/*.nupkg
 
+      # Publish to NuGet.org
       - name: Publish to NuGet.org
         if: env.SKIP_PUBLISH == 'false'
         run: |
