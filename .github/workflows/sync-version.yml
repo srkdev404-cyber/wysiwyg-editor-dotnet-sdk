@@ -1,4 +1,4 @@
-name: Sync Version (DotNet SDK Child-G)
+name: Sync Version – editor-dotnet
 
 on:
   repository_dispatch:
@@ -6,46 +6,95 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    environment: PAT
 
     steps:
+      # --------------------------------------------
+      # Checkout repository
+      # --------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
           fetch-depth: 0
 
-      - name: Update versions in all required files
+      # --------------------------------------------
+      # Load & validate version
+      # --------------------------------------------
+      - name: Load & validate version
         run: |
           VERSION="${{ github.event.client_payload.version }}"
+          VERSION="${VERSION//,/\.}"
 
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version format: $VERSION"
+            exit 1
+          fi
+
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Dispatching version $VERSION"
+
+      # --------------------------------------------
+      # Prepare release branch
+      # --------------------------------------------
+      - name: Prepare release branch
+        run: |
+          BRANCH="release-v${VERSION}"
+          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+
+          git fetch origin
+          if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+            git checkout "$BRANCH"
+            git pull origin "$BRANCH"
+          else
+            git checkout -b "$BRANCH"
+          fi
+
+      # --------------------------------------------
+      # Update versions in required files
+      # --------------------------------------------
+      - name: Update versions
+        run: |
           # demo-core/bower.json
-          jq ".version = \"$VERSION\"" demo-core/bower.json > /tmp/bower.json
+          jq --arg v "$VERSION" '.version = $v' demo-core/bower.json > /tmp/bower.json
           mv /tmp/bower.json demo-core/bower.json
 
           # FroalaEditorSDK.nuspec
           sed -i "s/<version>.*<\/version>/<version>$VERSION<\/version>/" src/FroalaEditorSDK.nuspec
 
-          # src.csproj - update version
+          # src.csproj
           sed -i "s/<Version>.*<\/Version>/<Version>$VERSION<\/Version>/" src/src.csproj
-
-          # remove PackageTargetFallback
           sed -i "/PackageTargetFallback/d" src/src.csproj
 
-      - name: Commit and push changes
+      # --------------------------------------------
+      # Commit & push
+      # --------------------------------------------
+      - name: Commit & push
         run: |
           git config user.name "srkdev404-cyber"
           git config user.email "srkdev404@gmail.com"
 
-          if git diff --quiet; then
-            echo "No changes detected. Exiting."
-            exit 0
-          fi
-
           git add demo-core/bower.json src/FroalaEditorSDK.nuspec src/src.csproj
-          git commit -m "chore: bump .NET SDK version to ${{ github.event.client_payload.version }}"
-          git push
+          git commit -m "chore: release editor-dotnet v${VERSION}" || echo "Nothing to commit"
+          git push origin "$BRANCH"
+
+      # --------------------------------------------
+      # Create Pull Request (YAML-SAFE)
+      # --------------------------------------------
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+          RELEASE_NOTES: ${{ github.event.client_payload.release_notes }}
+        run: |
+          PR_BODY=$(printf "release: yes\n\n## Release Notes (from primary repo)\n\n%s\n" "$RELEASE_NOTES")
+
+          gh pr create \
+            --base master \
+            --head "$BRANCH" \
+            --title "Release v${VERSION}" \
+            --body "$PR_BODY" \
+            || echo "Pull request already exists"
