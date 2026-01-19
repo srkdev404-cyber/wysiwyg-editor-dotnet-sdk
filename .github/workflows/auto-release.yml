@@ -104,7 +104,7 @@ jobs:
             echo "SKIP_PUBLISH=false" >> $GITHUB_ENV
           fi
 
-      # --------------------------------------------
+      # --------------------------------------------e
       # Create GitHub Release
       # --------------------------------------------
       - name: Create GitHub Release
@@ -112,8 +112,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.PAT }}
         run: |
-          gh release create "dotnet-v${VERSION}" \
-            --title "Editor .NET SDK v${VERSION}" \
+          gh release create "v${VERSION}" \
+            --title "Release ${VERSION}" \
             --notes "${{ github.event.pull_request.body }}" \
             nupkg/*.nupkg
 
