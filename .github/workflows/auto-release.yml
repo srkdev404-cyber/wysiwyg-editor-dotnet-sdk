@@ -1,7 +1,8 @@
-name: Build, Release & Publish (.NET SDK Child-G)
+name: Auto Release – editor-dotnet
 
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches:
       - master
 
@@ -10,34 +11,79 @@ permissions:
 
 jobs:
   release:
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-    environment: PAT
 
     steps:
-      # Checkout private repo
+      # --------------------------------------------
+      # Check release intent
+      # --------------------------------------------
+      - name: Check release intent
+        id: check
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PAT }}
+          script: |
+            const title = context.payload.pull_request.title || '';
+            const body  = context.payload.pull_request.body || '';
+            const text  = `${title} ${body}`;
+
+            core.setOutput(
+              'release',
+              /release:\s*yes/i.test(text) ? 'true' : 'false'
+            );
+
+      - name: Stop if not a release PR
+        if: steps.check.outputs.release == 'false'
+        run: exit 0
+
+      # --------------------------------------------
+      # Checkout merged code
+      # --------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
           fetch-depth: 0
 
+      # --------------------------------------------
       # Setup .NET
+      # --------------------------------------------
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      # Read version from nuspec
-      - name: Read version from nuspec
+      # --------------------------------------------
+      # Read & validate version from nuspec
+      # --------------------------------------------
+      - name: Read & validate version
         run: |
           VERSION=$(grep -oPm1 "(?<=<version>)[^<]+" src/FroalaEditorSDK.nuspec)
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          VERSION="${VERSION//,/\.}"
 
-      # Build project
+          if [ -z "$VERSION" ]; then
+            echo "Version not found in nuspec"
+            exit 1
+          fi
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version format: $VERSION"
+            exit 1
+          fi
+
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Resolved version: $VERSION"
+
+      # --------------------------------------------
+      # Build
+      # --------------------------------------------
       - name: Build project
         run: dotnet build src/src.csproj --configuration Release
 
-      # Pack NuGet package (CORRECT way)
+      # --------------------------------------------
+      # Pack NuGet package
+      # --------------------------------------------
       - name: Pack NuGet package
         run: |
           dotnet pack src/src.csproj \
@@ -45,30 +91,35 @@ jobs:
             --output ./nupkg \
             /p:PackageVersion=${{ env.VERSION }}
 
+      # --------------------------------------------
       # Check if NuGet version already exists
-      - name: Check if NuGet version already exists
+      # --------------------------------------------
+      - name: Check NuGet version existence
         run: |
           if dotnet nuget search FroalaEditorSDK \
             --source https://api.nuget.org/v3/index.json \
             | grep -q "${{ env.VERSION }}"; then
-            echo "Version already exists. Skipping publish."
             echo "SKIP_PUBLISH=true" >> $GITHUB_ENV
           else
             echo "SKIP_PUBLISH=false" >> $GITHUB_ENV
           fi
 
+      # --------------------------------------------
       # Create GitHub Release
+      # --------------------------------------------
       - name: Create GitHub Release
         if: env.SKIP_PUBLISH == 'false'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ env.VERSION }}
-          name: v${{ env.VERSION }}
-          generate_release_notes: true
-          files: |
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }}
+        run: |
+          gh release create "dotnet-v${VERSION}" \
+            --title "Editor .NET SDK v${VERSION}" \
+            --notes "${{ github.event.pull_request.body }}" \
             nupkg/*.nupkg
 
+      # --------------------------------------------
       # Publish to NuGet.org
+      # --------------------------------------------
       - name: Publish to NuGet.org
         if: env.SKIP_PUBLISH == 'false'
         run: |
