@@ -4,5 +4,5 @@
   "dependencies": {
     "froala-wysiwyg-editor": "4.7.1"
   },
-  "version": "5.0.3"
+  "version": "5.0.0-alpha"
 }
