@@ -116,13 +116,3 @@ jobs:
             --title "Release ${VERSION}" \
             --notes "${{ github.event.pull_request.body }}" \
             nupkg/*.nupkg
-
-      # --------------------------------------------
-      # Publish to NuGet.org
-      # --------------------------------------------
-      - name: Publish to NuGet.org
-        if: env.SKIP_PUBLISH == 'false'
-        run: |
-          dotnet nuget push nupkg/*.nupkg \
-            --api-key ${{ secrets.PAT }} \
-            --source https://api.nuget.org/v3/index.json
